@@ -7,8 +7,20 @@ app = Flask(__name__, template_folder='templates')
 
 email_list = pd.read_csv('email_list.csv')  # emails survey is sent to
 email_list.iloc[:,0] = email_list.iloc[:,0].apply(lambda x: x.strip())  # clean email list
-collected_emails = pd.DataFrame(columns=['emails'])  # emails collected to distribute incentives
 email_pattern = r'^[\w\.-]+@[a-zA-Z\d\.-]+\.[a-zA-Z]{2,}$'  # to ensure response validity
+
+def load_from_csv():
+    csv_filename = 'emails.csv'
+    csv_path = os.path.join(os.path.expanduser("~"), 'mysite', csv_filename)
+    if os.path.exists(csv_path):
+        return pd.read_csv(csv_path)
+    else:
+        return pd.DataFrame(columns=['emails'])
+
+def save_to_csv(df):
+    csv_filename = 'emails.csv'
+    csv_path = os.path.join(os.path.expanduser("~"), 'mysite', csv_filename)
+    df.to_csv(csv_path, index=False)
 
 @app.route('/')
 def index():
@@ -16,21 +28,22 @@ def index():
 
 @app.route('/submit', methods=['POST'])
 def submit_form():
-    global collected_emails
+    collected_emails = load_from_csv()
     email = request.form['email']
+    email = email.lower()
+    
     if email not in email_list.iloc[:,0]:  # verify if email is in original email list
         return redirect('/ineligible')
-    elif not bool(re.match(email_pattern, email)):  # does not follow email pattern 
+    if not bool(re.match(email_pattern, email)):  # does not follow email pattern 
         return redirect('/invalid')
-    else:
-        new_row = pd.DataFrame({'emails':[email]})
-        collected_emails = pd.concat([collected_emails, new_row])  # add new row to collected emails
-        if collected_emails['emails'].str.lower().duplicated().any():  # check if duplicate
-            return redirect('/duplicate')
-        else:
-            collected_emails = collected_emails.sample(frac=1).reset_index(drop=True)  # shuffle collected emails
-            save_to_csv()
-            return redirect('/success')
+    if email in collected_emails['emails'].str.lower().values:
+        return redirect('/duplicate')
+    
+    new_row = pd.DataFrame({'emails':[email]})
+    collected_emails = pd.concat([collected_emails, new_row])
+    collected_emails = collected_emails.sample(frac=1).reset_index(drop=True)
+    save_to_csv(collected_emails)  # Pass collected_emails as an argument
+    return redirect('/success')
 
 @app.route('/success')
 def success():
@@ -47,12 +60,6 @@ def invalid():
 @app.route('/duplicate')
 def duplicate():
     return render_template('duplicate.html')
-
-def save_to_csv():
-    global collected_emails
-    csv_filename = 'collected_emails.csv'
-    csv_path = os.path.join(os.path.expanduser("~"), 'mysite', csv_filename)
-    collected_emails.to_csv(csv_path, index=False)
 
 if __name__ == '__main__':
     app.run(debug=True)
